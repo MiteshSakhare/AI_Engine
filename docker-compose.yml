@@ -1,0 +1,253 @@
+##############################
+# 🔧 GLOBAL EXTENSIONS
+##############################
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+asyncpg://bravola_user:bravola_pass@postgres:5432/bravola_db
+  REDIS_URL: redis://redis:6379/0
+  SECRET_KEY: change-this-in-production-min-32-chars
+  ENVIRONMENT: development
+  TZ: Asia/Kolkata
+  PYTHONUNBUFFERED: "1"
+  LOG_LEVEL: info
+
+x-default-restart: &default-restart
+  restart: unless-stopped
+
+x-default-logging: &default-logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+##############################
+# 🚀 SERVICES
+##############################
+
+services:
+
+  ##############################
+  # 🐘 POSTGRES
+  ##############################
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: bravola-postgres
+    environment:
+      POSTGRES_USER: bravola_user
+      POSTGRES_PASSWORD: bravola_pass
+      POSTGRES_DB: bravola_db
+      TZ: Asia/Kolkata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bravola_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bravola_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    <<: [*default-restart, *default-logging]
+
+  ##############################
+  # ⚡ REDIS
+  ##############################
+
+  redis:
+    image: redis:7-alpine
+    container_name: bravola-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - bravola_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    <<: [*default-restart, *default-logging]
+
+  ##############################
+  # 🧠 BACKEND API
+  ##############################
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bravola-backend
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./ml_artifacts:/ml_artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    networks:
+      - bravola_network
+    deploy:
+      resources:
+        limits:
+          memory: 1.5g
+    <<: [*default-restart, *default-logging]
+
+  ##############################
+  # 🎨 FRONTEND (uncomment when frontend/ directory exists)
+  ##############################
+
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   container_name: bravola-frontend
+  #   ports:
+  #     - "5173:5173"
+  #   volumes:
+  #     - ./frontend:/app
+  #     - /app/node_modules
+  #   environment:
+  #     - VITE_API_URL=http://localhost:8000
+  #     - TZ=Asia/Kolkata
+  #   depends_on:
+  #     - backend
+  #   networks:
+  #     - bravola_network
+  #   command: npm run dev -- --host 0.0.0.0
+  #   <<: [*default-restart, *default-logging]
+
+  ##############################
+  # 🐝 CELERY WORKER
+  ##############################
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bravola-celery-worker
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+    volumes:
+      - ./backend:/app
+      - ./ml_artifacts:/ml_artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bravola_network
+    command: >
+      celery -A pipelines.retraining.celery_app worker
+      --loglevel=info
+      --concurrency=4
+      --prefetch-multiplier=1
+    healthcheck:
+      disable: true
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    <<: [*default-restart, *default-logging]
+
+  ##############################
+  # ⏰ CELERY BEAT
+  ##############################
+
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bravola-celery-beat
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - bravola_network
+    command: celery -A pipelines.retraining.celery_app beat --loglevel=info
+    healthcheck:
+      disable: true
+    <<: [*default-restart, *default-logging]
+
+  ##############################
+  # 📊 MLFLOW (Model Registry)
+  ##############################
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.11.3
+    container_name: bravola-mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./ml_artifacts:/ml_artifacts
+      - ./backend/mlruns:/mlruns
+    networks:
+      - bravola_network
+    command: mlflow server --host 0.0.0.0 --port 5000
+    <<: [*default-restart, *default-logging]
+
+  ##############################
+  # 🤖 OLLAMA (Local LLM)
+  ##############################
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: bravola-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./ollama-init.sh:/app/ollama-init.sh
+    entrypoint: ["/bin/sh", "/app/ollama-init.sh"]
+    networks:
+      - bravola_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+    <<: [*default-restart, *default-logging]
+
+##############################
+# 💾 VOLUMES
+##############################
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:
+
+##############################
+# 🌐 NETWORK
+##############################
+
+networks:
+  bravola_network:
+    driver: bridge
