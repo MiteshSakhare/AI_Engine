@@ -628,6 +628,10 @@ Conversational endpoint powered by Ollama with 2-step intent routing.
   ```powershell
   Invoke-RestMethod -Uri "http://localhost:8000/api/v1/chat" -Method Post -Headers @{"Content-Type"="application/json"} -Body '{"merchant_id":"test_merchant_001","messages":[{"role":"user","content":"Why is my retention score so low?"}],"context":{"discovery_output":{"persona":"explorer","vertical":"apparel","maturity_score":45},"benchmark_output":{"health_score":55,"gap_flags":["low_retention","high_abandonment"],"funnel_scores":{"acquisition":70,"conversion":55,"retention":40},"peer_cluster_id":"apparel-mid-us"}}}'
   ```
+  **Powershell**:
+  ```powershell
+  Invoke-RestMethod -Uri "http://localhost:8000/api/v1/chat" -Method Post -Headers @{"Content-Type"="application/json"} -Body '{"merchant_id":"test_merchant_001","messages":[{"role":"user","content":"Why is my retention score so low?"}],"context":{"benchmark_output":{"health_score":55,"gap_flags":["low_retention"]}}}' | Format-List
+  ```
 - **Expected Output**:
   ```json
   {
