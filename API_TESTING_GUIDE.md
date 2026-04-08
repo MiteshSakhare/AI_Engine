@@ -730,6 +730,16 @@ Streams chat responses token-by-token for a faster perceived response time.
   **Powershell**:
   ```powershell
   Invoke-RestMethod -Uri "http://localhost:8000/api/v1/chat/stream" -Method Post -Headers @{"Content-Type"="application/json"} -Body '{"merchant_id":"test_merchant_001","messages":[{"role":"user","content":"Give me a quick overview of my store performance"}],"context":{"benchmark_output":{"health_score":55,"gap_flags":["low_retention"]}}}'
+```
+  Invoke-RestMethod -Uri "http://localhost:8000/api/v1/chat" `
+-Method Post `
+-Headers @{"Content-Type"="application/json"} `
+-Body '{
+  "merchant_id":"test_merchant_002",
+  "messages":[{"role":"user","content":"Give me a quick overview of my store performance"}],
+  "context":{"benchmark_output":{"health_score":72,"gap_flags":["low_conversion","low_engagement"]}}
+}' | Format-List ```
+
   ```
 - **Expected Output** (streamed):
   ```

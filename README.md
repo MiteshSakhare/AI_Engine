@@ -507,7 +507,7 @@ curl http://localhost:8000/api/v1/chat/status
 ```bash
 # From backend directory
 cd backend
-
+.\venv\Scripts\activate  # for windows
 # Unit tests
 python -m pytest tests/unit/ -v
 
